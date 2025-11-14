@@ -1,0 +1,9 @@
+Django>=4.2
+psycopg2-binary
+celery>=5.2
+redis>=4.5
+gunicorn
+python-dotenv
+whitenoise
+requests
+dj-config-url
