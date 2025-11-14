@@ -1,0 +1,31 @@
+{% extends 'products/base.html' %}
+{% block content %}
+<h3>Webhooks</h3>
+<form method="post">{% csrf_token %}
+  {{ form.as_p }}
+  <button class="btn btn-success">Save</button>
+</form>
+<hr>
+<table class="table">
+  <thead><tr><th>URL</th><th>Event</th><th>Enabled</th><th>Last status</th><th>Actions</th></tr></thead>
+  <tbody>
+    {% for h in hooks %}
+    <tr>
+      <td>{{ h.url }}</td><td>{{ h.event_type }}</td><td>{{ h.is_enabled }}</td><td>{{ h.last_test_status }}</td>
+      <td>
+        <button class="btn btn-sm btn-outline-primary test-webhook" data-id="{{ h.id }}">Test</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<script>
+$('.test-webhook').on('click', function(){
+  var id = $(this).data('id');
+  $.get("{% url 'products:webhook_test' 0 %}".replace('/0/', '/'+id+'/'), function(d){
+    alert('Test queued');
+  });
+});
+</script>
+{% endblock %}

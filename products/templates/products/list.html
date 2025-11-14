@@ -1,0 +1,64 @@
+{% extends 'products/base.html' %}
+{% block content %}
+<h3>Products</h3>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-auto"><input class="form-control" name="q" placeholder="sku or name" value="{{ q }}"></div>
+  <div class="col-auto">
+    <select name="active" class="form-control">
+      <option value="">All</option>
+      <option value="true" {% if active=='true' %}selected{% endif %}>Active</option>
+      <option value="false" {% if active=='false' %}selected{% endif %}>Inactive</option>
+    </select>
+  </div>
+  <div class="col-auto"><button class="btn btn-primary">Filter</button></div>
+</form>
+
+<table class="table">
+  <thead><tr><th>SKU</th><th>Name</th><th>Active</th><th>Actions</th></tr></thead>
+  <tbody>
+    {% for p in products %}
+    <tr>
+      <td>{{ p.sku }}</td>
+      <td>{{ p.name }}</td>
+      <td>{{ p.active }}</td>
+      <td>
+        <a class="btn btn-sm btn-outline-primary" href="{% url 'products:product_edit' p.pk %}">Edit</a>
+        <form style="display:inline" method="post" action="{% url 'products:product_delete' p.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<nav>
+  {% if page > 1 %}
+    <a href="?page={{ page|add:-1 }}&q={{ q }}&active={{ active }}" class="btn btn-light">Previous</a>
+  {% endif %}
+  Page {{ page }}
+  {% if total > page*per_page %}
+    <a href="?page={{ page|add:1 }}&q={{ q }}&active={{ active }}" class="btn btn-light">Next</a>
+  {% endif %}
+</nav>
+
+<form id="delete-all" method="post" class="mt-4">
+  {% csrf_token %}
+  <button class="btn btn-danger">Delete ALL products</button>
+</form>
+
+<script>
+$('#delete-all').on('submit', function(e){
+  e.preventDefault();
+  if(!confirm('Are you sure? This cannot be undone.')) return;
+  $.ajax({
+    url: "{% url 'products:product_delete_all' %}",
+    method: "POST",
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+    success: function(){ location.reload(); },
+    error: function(){ alert('failed'); }
+  });
+});
+</script>
+{% endblock %}

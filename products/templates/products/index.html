@@ -1,0 +1,56 @@
+{% extends 'products/base.html' %}
+{% block content %}
+<h3>Upload CSV</h3>
+<form id="upload-form" method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  <div class="mb-3">
+    <input type="file" name="file" id="file" class="form-control" accept=".csv">
+  </div>
+  <button class="btn btn-success" type="submit">Upload</button>
+</form>
+
+<div id="progress-section" style="display:none" class="mt-3">
+  <div class="progress">
+    <div id="progress-bar" class="progress-bar" role="progressbar" style="width:0%">0%</div>
+  </div>
+  <p id="progress-message"></p>
+</div>
+
+<script>
+$('#upload-form').on('submit', function(e){
+  e.preventDefault();
+  var fd = new FormData();
+  var f = $('#file')[0].files[0];
+  if(!f){ alert('choose file'); return; }
+  fd.append('file', f);
+  $.ajax({
+    url: "{% url 'products:upload_file' %}",
+    method: "POST",
+    data: fd,
+    processData: false,
+    contentType: false,
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+    success: function(data){
+      var job_id = data.job_id;
+      $('#progress-section').show();
+      poll(job_id);
+    },
+    error: function(e){ alert('upload failed'); console.log(e); }
+  });
+});
+
+function poll(job_id){
+  var interval = setInterval(function(){
+    $.get("{% url 'products:job_status' 'JOB' %}".replace('JOB', job_id), function(data){
+      $('#progress-bar').css('width', data.progress + '%').text(data.progress + '%');
+      $('#progress-message').text(data.message || data.status);
+      if(data.status === 'complete' || data.status === 'failed'){
+        clearInterval(interval);
+        if(data.status==='complete') alert('Import complete');
+        else alert('Import failed: ' + data.message);
+      }
+    });
+  }, 1500);
+}
+</script>
+{% endblock %}
