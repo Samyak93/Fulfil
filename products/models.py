@@ -2,9 +2,10 @@ from django.db import models
 from django.db.models import UniqueConstraint
 from django.db.models.functions import Lower
 
+# Product class - currently only has minimal fields for cleaner testing, can increase fields later if needed
 class Product(models.Model):
     name = models.CharField(max_length=255)
-    sku = models.CharField(max_length=255, unique=True)
+    sku = models.CharField(max_length=255, unique=True) # making this unique for bulk create upsert!
     description = models.TextField(blank=True)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -18,6 +19,7 @@ class Product(models.Model):
     def __str__(self):
         return f"{self.sku} — {self.name}"
 
+# Webhook class - could've created a separate app for this but for now keeping it in same app
 class Webhook(models.Model):
     EVENT_CHOICES = [
         ('product_imported', 'Product Imported'),

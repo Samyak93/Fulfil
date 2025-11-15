@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import Product, Webhook
 
+# registering admin models for django-admin
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = ('id','sku','name','active','updated_at')
