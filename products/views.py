@@ -1,6 +1,5 @@
 import os
 import uuid
-import csv
 import redis
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
@@ -12,9 +11,11 @@ from .tasks import import_products_task, test_webhook_task
 
 _r = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
+
 def index(request):
     form = UploadFileForm()
     return render(request, 'products/index.html', {'form': form})
+
 
 def upload_file(request):
     if request.method == 'POST':
@@ -28,20 +29,25 @@ def upload_file(request):
             with open(filepath, 'wb') as dest:
                 for chunk in f.chunks():
                     dest.write(chunk)
+
             # init redis progress
             _r.set(f"job:{job_id}:status", "queued")
             _r.set(f"job:{job_id}:progress", 0)
             _r.set(f"job:{job_id}:message", "Queued")
-            # start celery task
+            _r.set(f"job:{job_id}:processed", 0)
+
+            # start async celery import
             import_products_task.delay(filepath, job_id)
             return JsonResponse({'job_id': job_id})
     return JsonResponse({'error': 'invalid'}, status=400)
+
 
 def job_status(request, job_id):
     status = _r.get(f"job:{job_id}:status") or 'unknown'
     progress = int(_r.get(f"job:{job_id}:progress") or 0)
     msg = _r.get(f"job:{job_id}:message") or ''
     return JsonResponse({'status': status, 'progress': progress, 'message': msg})
+
 
 def product_list(request):
     q = request.GET.get('q', '')
@@ -50,7 +56,7 @@ def product_list(request):
     if q:
         qs = qs.filter(Q(sku__icontains=q) | Q(name__icontains=q) | Q(description__icontains=q))
     if active.lower() in ['true', 'false']:
-        qs = qs.filter(active=(active.lower()=='true'))
+        qs = qs.filter(active=(active.lower() == 'true'))
     page = int(request.GET.get('page', 1))
     per_page = 25
     total = qs.count()
@@ -58,7 +64,16 @@ def product_list(request):
     end = start + per_page
     products = qs.order_by('-updated_at')[start:end]
     show_next = total > page * per_page
-    return render(request, 'products/list.html', {'products': products, 'page': page, 'per_page': per_page, 'total': total, 'q': q, 'active': active, 'show_next': show_next})
+    return render(request, 'products/list.html', {
+        'products': products,
+        'page': page,
+        'per_page': per_page,
+        'total': total,
+        'q': q,
+        'active': active,
+        'show_next': show_next
+    })
+
 
 def product_create(request):
     if request.method == 'POST':
@@ -69,6 +84,7 @@ def product_create(request):
     else:
         form = ProductForm()
     return render(request, 'products/form.html', {'form': form, 'create': True})
+
 
 def product_edit(request, pk):
     product = get_object_or_404(Product, pk=pk)
@@ -81,6 +97,7 @@ def product_edit(request, pk):
         form = ProductForm(instance=product)
     return render(request, 'products/form.html', {'form': form, 'create': False})
 
+
 def product_delete(request, pk):
     product = get_object_or_404(Product, pk=pk)
     if request.method == 'POST':
@@ -88,11 +105,13 @@ def product_delete(request, pk):
         return redirect('products:product_list')
     return render(request, 'products/form.html', {'confirm_delete': True, 'product': product})
 
+
 def product_delete_all(request):
     if request.method == 'POST':
         Product.objects.all().delete()
-        return JsonResponse({'status':'ok'})
-    return JsonResponse({'error':'method'}, status=400)
+        return JsonResponse({'status': 'ok'})
+    return JsonResponse({'error': 'method'}, status=400)
+
 
 def webhooks(request):
     if request.method == 'POST':
@@ -104,6 +123,7 @@ def webhooks(request):
         form = WebhookForm()
     hooks = Webhook.objects.all()
     return render(request, 'products/webhooks.html', {'form': form, 'hooks': hooks})
+
 
 def webhook_test(request, pk):
     hook = get_object_or_404(Webhook, pk=pk)
