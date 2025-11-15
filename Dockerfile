@@ -1,19 +1,21 @@
-# Use official Python image
+# Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /code
 
-# Install system dependencies (if needed)
+# System dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy project code
 COPY . .
 
 # Collect static files
 RUN python manage.py collectstatic --noinput
 
-# Default command (overridden by docker‑compose)
+# Default command overridden by docker-compose

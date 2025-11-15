@@ -6,8 +6,8 @@
   <div class="col-auto">
     <select name="active" class="form-control">
       <option value="">All</option>
-      <option value="true" {% if active=='true' %}selected{% endif %}>Active</option>
-      <option value="false" {% if active=='false' %}selected{% endif %}>Inactive</option>
+      <option value="true" {% if active == 'true' %}selected{% endif %}>Active</option>
+      <option value="false" {% if active == 'false' %}selected{% endif %}>Inactive</option>
     </select>
   </div>
   <div class="col-auto"><button class="btn btn-primary">Filter</button></div>
@@ -38,7 +38,7 @@
     <a href="?page={{ page|add:-1 }}&q={{ q }}&active={{ active }}" class="btn btn-light">Previous</a>
   {% endif %}
   Page {{ page }}
-  {% if total > page*per_page %}
+  {% if show_next  %}
     <a href="?page={{ page|add:1 }}&q={{ q }}&active={{ active }}" class="btn btn-light">Next</a>
   {% endif %}
 </nav>

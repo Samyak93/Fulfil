@@ -21,7 +21,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: gunicorn acme_product_importer.wsgi:application --bind 0.0.0.0:8000 --log-file -
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn acme_product_importer.wsgi:application --bind 0.0.0.0:8000 --log-file -"
     volumes:
       - .:/code
     ports:
@@ -36,11 +38,30 @@ services:
       DEBUG: "True"
       ALLOWED_HOSTS: "*"
 
-  worker:
+  worker1:
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A acme_product_importer worker --loglevel=info
+    command: >
+      celery -A acme_product_importer worker --loglevel=info --concurrency=4 --hostname=worker1@%h --autoscale=4,2
+    volumes:
+      - .:/code
+    depends_on:
+      - db
+      - redis
+    environment:
+      DATABASE_URL: postgres://acme_user:acme_pwd@db:5432/acme
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_SECRET_KEY: django-insecure-hw2%7v$plogbs3(tet@=m0n3_&eg448zre0nw23+$$xg!vv$q_
+      DEBUG: "True"
+      ALLOWED_HOSTS: "*"
+
+  worker2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      celery -A acme_product_importer worker --loglevel=info --concurrency=4 --hostname=worker2@%h --autoscale=4,2
     volumes:
       - .:/code
     depends_on:

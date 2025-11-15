@@ -57,7 +57,8 @@ def product_list(request):
     start = (page-1)*per_page
     end = start + per_page
     products = qs.order_by('-updated_at')[start:end]
-    return render(request, 'products/list.html', {'products': products, 'page': page, 'per_page': per_page, 'total': total, 'q': q, 'active': active})
+    show_next = total > page * per_page
+    return render(request, 'products/list.html', {'products': products, 'page': page, 'per_page': per_page, 'total': total, 'q': q, 'active': active, 'show_next': show_next})
 
 def product_create(request):
     if request.method == 'POST':
