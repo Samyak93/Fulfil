@@ -11,45 +11,62 @@ _r = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 CHUNK_SIZE = 1000  # number of rows per subtask
 
+
 @shared_task
 def import_products_task(filepath, job_id):
     """
-    Master task: splits CSV into chunks and triggers subtasks in parallel
+    Master task: read CSV, dedupe globally (last occurrence wins), split into chunks,
+    then dispatch parallel subtasks and a finalize callback.
     """
     try:
         _r.set(f"job:{job_id}:status", "parsing")
-        with open(filepath, encoding='utf-8', errors='ignore') as f:
-            total_rows = sum(1 for _ in f) - 1
+        _r.set(f"job:{job_id}:progress", 0)
+        _r.set(f"job:{job_id}:message", "Parsing CSV")
+
+        # --- GLOBAL DEDUPE: keep last occurrence of each SKU (case-insensitive) ---
+        unique_map = {}  # sku_lower -> row dict (last seen wins)
+        with open(filepath, newline='', encoding='utf-8', errors='ignore') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                sku_raw = (row.get('sku') or row.get('SKU') or row.get('Sku') or '').strip()
+                if not sku_raw:
+                    continue
+                sku = sku_raw.lower()
+                if sku == 'sku':  # skip header-like rows
+                    continue
+                unique_map[sku] = {
+                    'sku': sku,  # normalized to lowercase for DB unique index
+                    'name': (row.get('name') or row.get('Name') or '').strip(),
+                    'description': (row.get('description') or row.get('Description') or '').strip(),
+                }
+
+        unique_rows = list(unique_map.values())
+        total_rows = len(unique_rows)
+
         if total_rows <= 0:
             _r.set(f"job:{job_id}:status", "failed")
             _r.set(f"job:{job_id}:message", "Empty file or invalid")
             return {'error': 'empty'}
 
+        # init progress
         _r.set(f"job:{job_id}:status", "processing")
         _r.set(f"job:{job_id}:progress", 0)
         _r.set(f"job:{job_id}:message", "Starting import")
+        _r.set(f"job:{job_id}:processed", 0)
+        _r.set(f"job:{job_id}:total", total_rows)
 
-        # Read CSV and create chunks
+        # --- CHUNKING ---
         chunks = []
         batch = []
-        with open(filepath, newline='', encoding='utf-8', errors='ignore') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                sku = (row.get('sku') or row.get('SKU') or row.get('Sku') or '').strip()
-                if sku.lower() == 'sku' or sku == '':
-                    continue
-                batch.append({
-                    'sku': sku,
-                    'name': (row.get('name') or row.get('Name') or '').strip(),
-                    'description': (row.get('description') or row.get('Description') or '').strip(),
-                })
-                if len(batch) >= CHUNK_SIZE:
-                    chunks.append(batch)
-                    batch = []
-            if batch:
+        for r in unique_rows:
+            batch.append(r)
+            if len(batch) >= CHUNK_SIZE:
                 chunks.append(batch)
+                batch = []
+        if batch:
+            chunks.append(batch)
 
-        # Use chord to run all batches in parallel and then a callback
+        # dispatch tasks in parallel and finalize
         header = group(process_batch.s(chunk, job_id, total_rows) for chunk in chunks)
         callback = finalize_import.s(job_id)
         chord(header)(callback)
@@ -64,26 +81,36 @@ def import_products_task(filepath, job_id):
 @shared_task
 def process_batch(batch, job_id, total_rows):
     """
-    Subtask to process a single batch of products
+    Subtask to process a single batch of products — batch items are already globally unique.
+    Uses a single bulk_create with update_conflicts=True (Postgres ON CONFLICT DO UPDATE).
     """
-    for r in batch:
-        sku = r['sku']
-        name = r['name']
-        desc = r['description']
-        try:
-            existing = Product.objects.get(sku__iexact=sku)
-            existing.name = name
-            existing.description = desc
-            existing.save()
-        except Product.DoesNotExist:
-            Product.objects.create(sku=sku, name=name, description=desc)
+    # prepare product instances (sku already normalized to lowercase in import step)
+    curr_products = [
+        Product(
+            sku=r['sku'],
+            name=r['name'],
+            description=r['description']
+        )
+        for r in batch
+    ]
 
-    # Update progress in Redis
-    processed = int(_r.get(f"job:{job_id}:processed") or 0) + len(batch)
-    _r.set(f"job:{job_id}:processed", processed)
+    # Bulk upsert in one DB statement (Django + Postgres)
+    Product.objects.bulk_create(
+        curr_products,
+        update_conflicts=True,              # ON CONFLICT DO UPDATE
+        update_fields=['name', 'description'],
+        unique_fields=['sku'],
+        batch_size=1000
+    )
+
+    # Atomically increment processed count (avoid race conditions across workers)
+    processed = _r.incrby(f"job:{job_id}:processed", len(curr_products))
+    # Update progress and message
     _r.set(f"job:{job_id}:progress", int(processed * 100 / total_rows))
     _r.set(f"job:{job_id}:message", f"Processed {processed}/{total_rows}")
-    return processed
+
+    # Return how many items this task processed (used by chord)
+    return len(curr_products)
 
 
 @shared_task
