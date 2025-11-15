@@ -2,12 +2,13 @@ import os
 import uuid
 import redis
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponseBadRequest
 from django.conf import settings
 from django.db.models import Q
+from django.views.decorators.http import require_POST
 from .forms import UploadFileForm, ProductForm, WebhookForm
 from .models import Product, Webhook
-from .tasks import import_products_task, test_webhook_task
+from .tasks import import_products_task, test_webhook_task, _trigger_webhooks
 
 _r = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
@@ -30,11 +31,12 @@ def upload_file(request):
                 for chunk in f.chunks():
                     dest.write(chunk)
 
-            # init redis progress
+            # init redis progress & save filepath for retry
             _r.set(f"job:{job_id}:status", "queued")
             _r.set(f"job:{job_id}:progress", 0)
             _r.set(f"job:{job_id}:message", "Queued")
             _r.set(f"job:{job_id}:processed", 0)
+            _r.set(f"job:{job_id}:filepath", filepath)
 
             # start async celery import
             import_products_task.delay(filepath, job_id)
@@ -47,6 +49,31 @@ def job_status(request, job_id):
     progress = int(_r.get(f"job:{job_id}:progress") or 0)
     msg = _r.get(f"job:{job_id}:message") or ''
     return JsonResponse({'status': status, 'progress': progress, 'message': msg})
+
+
+@require_POST
+def retry_import(request, job_id):
+    """
+    Create a new job that retries the same CSV file used by job_id.
+    Returns new_job_id.
+    """
+    # read saved filepath
+    filepath = _r.get(f"job:{job_id}:filepath")
+    if not filepath or not os.path.exists(filepath):
+        return JsonResponse({'error': 'original file not found'}, status=400)
+
+    new_job_id = str(uuid.uuid4())
+
+    # init redis for new job
+    _r.set(f"job:{new_job_id}:status", "queued")
+    _r.set(f"job:{new_job_id}:progress", 0)
+    _r.set(f"job:{new_job_id}:message", "Queued (retry)")
+    _r.set(f"job:{new_job_id}:processed", 0)
+    _r.set(f"job:{new_job_id}:filepath", filepath)
+
+    # enqueue import
+    import_products_task.delay(filepath, new_job_id)
+    return JsonResponse({'job_id': new_job_id})
 
 
 def product_list(request):
@@ -79,7 +106,8 @@ def product_create(request):
     if request.method == 'POST':
         form = ProductForm(request.POST)
         if form.is_valid():
-            form.save()
+            product = form.save()
+            _trigger_webhooks('product_created', {'id': product.id, 'name': product.name})
             return redirect('products:product_list')
     else:
         form = ProductForm()
@@ -92,6 +120,7 @@ def product_edit(request, pk):
         form = ProductForm(request.POST, instance=product)
         if form.is_valid():
             form.save()
+            _trigger_webhooks('product_updated', {'id': product.id, 'name': product.name})
             return redirect('products:product_list')
     else:
         form = ProductForm(instance=product)
@@ -129,3 +158,21 @@ def webhook_test(request, pk):
     hook = get_object_or_404(Webhook, pk=pk)
     task = test_webhook_task.delay(hook.id)
     return JsonResponse({'task_id': task.id})
+
+
+def webhook_edit(request, pk):
+    hook = get_object_or_404(Webhook, pk=pk)
+    if request.method == 'POST':
+        form = WebhookForm(request.POST, instance=hook)
+        if form.is_valid():
+            form.save()
+            return redirect('products:webhooks')
+    else:
+        form = WebhookForm(instance=hook)
+    return render(request, 'products/webhook_form.html', {'form': form, 'edit': True})
+
+@require_POST
+def webhook_delete(request, pk):
+    hook = get_object_or_404(Webhook, pk=pk)
+    hook.delete()
+    return redirect('products:webhooks')

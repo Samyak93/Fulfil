@@ -1,19 +1,46 @@
 {% extends 'products/base.html' %}
 {% block content %}
 <h3>Webhooks</h3>
+
+<!-- Add Webhook Form -->
 <form method="post">{% csrf_token %}
   {{ form.as_p }}
   <button class="btn btn-success">Save</button>
 </form>
+
 <hr>
+
+<!-- Webhooks Table -->
 <table class="table">
-  <thead><tr><th>URL</th><th>Event</th><th>Enabled</th><th>Last status</th><th>Actions</th></tr></thead>
+  <thead>
+    <tr>
+      <th>URL</th>
+      <th>Event</th>
+      <th>Enabled</th>
+      <th>Last status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
   <tbody>
     {% for h in hooks %}
     <tr>
-      <td>{{ h.url }}</td><td>{{ h.event_type }}</td><td>{{ h.is_enabled }}</td><td>{{ h.last_test_status }}</td>
+      <td>{{ h.url }}</td>
+      <td>{{ h.event_type }}</td>
+      <td>{{ h.is_enabled }}</td>
+      <td>{{ h.last_test_status }}</td>
       <td>
+        <!-- Test Button -->
         <button class="btn btn-sm btn-outline-primary test-webhook" data-id="{{ h.id }}">Test</button>
+
+        <!-- Edit Button -->
+        <a href="{% url 'products:webhook_edit' h.id %}" class="btn btn-sm btn-outline-warning">Edit</a>
+
+        <!-- Delete Button -->
+        <form method="post" action="{% url 'products:webhook_delete' h.id %}" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline-danger"
+                  onclick="return confirm('Delete this webhook?')">Delete</button>
+        </form>
       </td>
     </tr>
     {% endfor %}
@@ -21,11 +48,12 @@
 </table>
 
 <script>
-$('.test-webhook').on('click', function(){
-  var id = $(this).data('id');
-  $.get("{% url 'products:webhook_test' 0 %}".replace('/0/', '/'+id+'/'), function(d){
-    alert('Test queued');
+  // Test webhook
+  $('.test-webhook').on('click', function(){
+    var id = $(this).data('id');
+    $.get("{% url 'products:webhook_test' 0 %}".replace('/0/', '/'+id+'/'), function(d){
+      alert('Test queued');
+    });
   });
-});
 </script>
 {% endblock %}

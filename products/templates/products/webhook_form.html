@@ -1,0 +1,9 @@
+{% extends 'products/base.html' %}
+{% block content %}
+<h3>{% if edit %}Edit{% else %}Add{% endif %} Webhook</h3>
+<form method="post">{% csrf_token %}
+  {{ form.as_p }}
+  <button class="btn btn-success">Save</button>
+  <a href="{% url 'products:webhooks' %}" class="btn btn-secondary">Cancel</a>
+</form>
+{% endblock %}

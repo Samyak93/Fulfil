@@ -14,15 +14,21 @@
     <div id="progress-bar" class="progress-bar" role="progressbar" style="width:0%">0%</div>
   </div>
   <p id="progress-message"></p>
+  <button id="retry-btn" class="btn btn-warning" style="display:none;">Retry</button>
+  <button id="cancel-retry-btn" class="btn btn-secondary" style="display:none;">Close</button>
 </div>
 
 <script>
+var currentJobId = null;
+var pollInterval = null;
+
 $('#upload-form').on('submit', function(e){
   e.preventDefault();
   var fd = new FormData();
   var f = $('#file')[0].files[0];
   if(!f){ alert('choose file'); return; }
   fd.append('file', f);
+
   $.ajax({
     url: "{% url 'products:upload_file' %}",
     method: "POST",
@@ -31,26 +37,75 @@ $('#upload-form').on('submit', function(e){
     contentType: false,
     headers: {'X-CSRFToken': '{{ csrf_token }}'},
     success: function(data){
-      var job_id = data.job_id;
-      $('#progress-section').show();
-      poll(job_id);
+      if(data.job_id){
+        currentJobId = data.job_id;
+        $('#progress-section').show();
+        $('#retry-btn').hide();
+        $('#cancel-retry-btn').hide();
+        startPolling(currentJobId);
+      } else {
+        alert('Upload failed');
+      }
     },
     error: function(e){ alert('upload failed'); console.log(e); }
   });
 });
 
-function poll(job_id){
-  var interval = setInterval(function(){
-    $.get("{% url 'products:job_status' 'JOB' %}".replace('JOB', job_id), function(data){
+function startPolling(jobId){
+  if(pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(function(){
+    $.get("{% url 'products:job_status' 'JOB' %}".replace('JOB', jobId), function(data){
       $('#progress-bar').css('width', data.progress + '%').text(data.progress + '%');
       $('#progress-message').text(data.message || data.status);
-      if(data.status === 'complete' || data.status === 'failed'){
-        clearInterval(interval);
-        if(data.status==='complete') alert('Import complete');
-        else alert('Import failed: ' + data.message);
+
+      if(data.status === 'complete'){
+        clearInterval(pollInterval);
+        $('#retry-btn').hide();
+        $('#cancel-retry-btn').show();
+        alert('Import complete');
+      } else if(data.status === 'failed'){
+        clearInterval(pollInterval);
+        $('#retry-btn').show();
+        $('#cancel-retry-btn').show();
+        alert('Import failed: ' + data.message);
       }
     });
   }, 1500);
 }
+
+// Retry button click
+$('#retry-btn').on('click', function(){
+  if(!currentJobId) return;
+  $(this).prop('disabled', true);
+  $('#progress-message').text('Retrying...');
+
+  $.ajax({
+    url: "{% url 'products:retry_import' 'JOB' %}".replace('JOB', currentJobId),
+    method: "POST",
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},  // <-- add this line
+    success: function(data){
+      $('#retry-btn').prop('disabled', false);
+      if(data.job_id){
+        currentJobId = data.job_id;
+        $('#retry-btn').hide();
+        $('#cancel-retry-btn').hide();
+        startPolling(currentJobId);
+      } else {
+        alert('Retry failed: ' + (data.error || 'unknown error'));
+      }
+    },
+    error: function(){
+      $('#retry-btn').prop('disabled', false);
+      alert('Retry request failed');
+    }
+  });
+});
+
+
+// Close button click
+$('#cancel-retry-btn').on('click', function(){
+  if(pollInterval) clearInterval(pollInterval);
+  $('#progress-section').hide();
+});
 </script>
 {% endblock %}

@@ -14,4 +14,8 @@ urlpatterns = [
     path('products/delete_all/', views.product_delete_all, name='product_delete_all'),
     path('webhooks/', views.webhooks, name='webhooks'),
     path('webhooks/test/<int:pk>/', views.webhook_test, name='webhook_test'),
+    path('retry/<str:job_id>/', views.retry_import, name='retry_import'),
+    path('webhooks/edit/<int:pk>/', views.webhook_edit, name='webhook_edit'),
+    path('webhooks/delete/<int:pk>/', views.webhook_delete, name='webhook_delete'),
+
 ]
